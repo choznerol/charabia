@@ -1,17 +1,17 @@
 use fst::Set;
 
-use crate::classifier::{ClassifiedTokenIter, Classify};
-use crate::normalizer::{Normalize, NormalizerOption};
+use crate::classifier::Classify;
+use crate::normalizer::{Normalize, NormalizedTokenIter, NormalizerOption};
 use crate::segmenter::{Segment, SegmentedTokenIter};
 use crate::Token;
 
 /// Iterator over tuples of [`&str`] (part of the original text) and [`Token`].
-pub struct ReconstructedTokenIter<'o, 'sw, A: AsRef<[u8]>> {
-    token_iter: ClassifiedTokenIter<'o, 'sw, A>,
+pub struct ReconstructedTokenIter<'o> {
+    token_iter: NormalizedTokenIter<'o>,
     original: &'o str,
 }
 
-impl<'o, A: AsRef<[u8]>> Iterator for ReconstructedTokenIter<'o, '_, A> {
+impl<'o> Iterator for ReconstructedTokenIter<'o> {
     type Item = (&'o str, Token<'o>);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -49,7 +49,7 @@ pub trait Tokenize<'o, A: AsRef<[u8]>> {
     /// assert_eq!(lemma, "quick");
     /// assert_eq!(kind, TokenKind::Word);
     /// ```
-    fn tokenize(&self) -> ClassifiedTokenIter<'o, '_, A>;
+    fn tokenize(&self) -> NormalizedTokenIter<'o>;
 
     /// Attaches each [`Token`] to its corresponding portion of the original text.
     ///
@@ -77,15 +77,15 @@ pub trait Tokenize<'o, A: AsRef<[u8]>> {
     /// assert_eq!(lemma, "quick");
     /// assert_eq!(kind, TokenKind::Word);
     /// ```
-    fn reconstruct(&self) -> ReconstructedTokenIter<'o, '_, A>;
+    fn reconstruct(&self) -> ReconstructedTokenIter<'o>;
 }
 
 impl<'o> Tokenize<'o, Vec<u8>> for &'o str {
-    fn tokenize(&self) -> ClassifiedTokenIter<'o, '_, Vec<u8>> {
+    fn tokenize(&self) -> NormalizedTokenIter<'o> {
         self.segment().classify().normalize(NormalizerOption::default())
     }
 
-    fn reconstruct(&self) -> ReconstructedTokenIter<'o, '_, Vec<u8>> {
+    fn reconstruct(&self) -> ReconstructedTokenIter<'o> {
         ReconstructedTokenIter { token_iter: self.tokenize(), original: self }
     }
 }
@@ -98,15 +98,15 @@ pub struct Tokenizer<'sw, A> {
     normalizer_option: NormalizerOption,
 }
 
-impl<'o, A: AsRef<[u8]>> Tokenizer<'_, A> {
-    pub fn tokenize(&self, original: &'o str) -> ClassifiedTokenIter<'o, '_, A> {
+impl<'o, A: AsRef<[u8]>> Tokenizer<'o, A> {
+    pub fn tokenize(&self, original: &'o str) -> NormalizedTokenIter<'o> {
         original
             .segment()
             .classify_with_stop_words(self.stop_words)
             .normalize(self.normalizer_option)
     }
 
-    pub fn reconstruct(&self, original: &'o str) -> ReconstructedTokenIter<'o, '_, A> {
+    pub fn reconstruct(&self, original: &'o str) -> ReconstructedTokenIter<'o> {
         ReconstructedTokenIter { original: original, token_iter: self.tokenize(original) }
     }
 
@@ -216,8 +216,8 @@ mod test {
         };
         assert_eq!(tokens.iter().last().map(|t| t.lemma()), Some("."));
 
+        let stop_words: Set<Vec<u8>> = Set::from_iter(["to"].iter()).unwrap();
         let tokens: Vec<_> = {
-            let stop_words: Set<Vec<u8>> = Set::from_iter(["to"].iter()).unwrap();
             let mut builder = TokenizerBuilder::new();
             let builder = builder.stop_words(&stop_words);
             let tokens = {
